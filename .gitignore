@@ -105,6 +105,25 @@ venv.bak/
 
 .DS_Storecache/
 
-bin/
-data/
+!bin/
+bin/*
+!bin/.gitkeep
+
+!data/
+data/*
+
+!data/mixamo/
+data/mixamo/*
+!data/mixamo/all.txt
+!data/mixamo/train.txt
+!data/mixamo/val.txt
+
+!data/renderppl/
+data/renderppl/*
+!data/renderppl/all.txt
+!data/renderppl/train.txt
+!data/renderppl/val.txt
+
+
 test_data/
+
