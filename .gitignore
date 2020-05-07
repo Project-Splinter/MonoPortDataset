@@ -124,6 +124,5 @@ data/renderppl/*
 !data/renderppl/train.txt
 !data/renderppl/val.txt
 
-
 test_data/
 

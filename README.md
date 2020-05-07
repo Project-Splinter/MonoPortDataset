@@ -10,8 +10,9 @@ The folder structure is expected to be like this:
     #     |- data/
     #         |- mixamo/
     #             |- {all, train, val}.txt;
-    #             |- actions /<action>.fbx
-    #             |- clusters/
+    #             |- actions  /<action>.fbx
+    #             |- skeletons/<action>/%06d.sk
+    #             |- clusters /kmeans/{all, train, val}_{k}.json
     #
     #         |- renderppl/
     #             |- {all, train, val}.txt;
@@ -65,3 +66,12 @@ bash ./blender_multi_instances.sh renderppl_tpose_objs.py 20
 # under ./MonoPortDataset/scripts/
 python scripts/renderppl_del_inside.py;
 ```
+
+`scripts/mixamo_skeletons.py`: We use this script to export skeletons from mixamo data.
+```
+# under ./MonoPortDataset/scripts/
+../bin/blender-2.82a-linux64/blender --background --python mixamo_skeletons.py > /dev/null
+# or using this line for multi blender instances processing
+bash ./blender_multi_instances.sh mixamo_skeletons.py 20
+```
+
