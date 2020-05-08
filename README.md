@@ -24,7 +24,7 @@ The folder structure is expected to be like this:
     #         |- pifu_orth/
     #             |- {train, val}.txt;
     #             |- <subject>/<action>/<frame>/
-    #                {mesh.obj, joints.txt}
+    #                {mesh.obj, skeleton.txt}
     #                {calib/*.txt, render/*.png, uv_render/*.jpg}
     #
     #     |- test_scripts/ # store experimental things.
@@ -53,7 +53,7 @@ sh init_link.sh;
 bash create_splits.sh;
 ```
 
-`scripts/renderppl_tpose_objs.py`: We use this script to export renderppl data to obj from fbx file. We then use this obj file to find those verts/faces inside the mesh (mouth, teeth, eyebows etc.)
+`scripts/renderppl_tpose_objs.py`: We use this script to export renderppl data to obj from fbx file. We then use the obj files to find those verts/faces inside the mesh (mouth, teeth, eyebows etc.)
 ```
 # under ./MonoPortDataset/scripts/
 ../bin/blender-2.82a-linux64/blender --background --python renderppl_tpose_objs.py > /dev/null
@@ -64,7 +64,7 @@ bash ./blender_multi_instances.sh renderppl_tpose_objs.py 20
 `scripts/renderppl_del_inside.py`: We use this script to find those verts/faces inside the mesh (mouth, teeth, eyebows etc.) By default it runs using 8 threads.
 ```
 # under ./MonoPortDataset/scripts/
-python scripts/renderppl_del_inside.py;
+python renderppl_del_inside.py;
 ```
 
 `scripts/mixamo_skeletons.py`: We use this script to export skeletons from mixamo data.
@@ -75,3 +75,10 @@ python scripts/renderppl_del_inside.py;
 bash ./blender_multi_instances.sh mixamo_skeletons.py 20
 ```
 
+`scripts/mixamo_kmeans.py`: As mixamo action data has severely unbalanced distribution, we perform kmeans here on mixamo data to do the clustering first.
+```
+# under ./MonoPortDataset/scripts/
+python mixamo_kmeans.py --split all --klist 10 20 50 100 200 300 500 1000
+python mixamo_kmeans.py --split train --klist 10 20 50 100 200 300 500 1000
+python mixamo_kmeans.py --split val --klist 10 20 50 100
+```
