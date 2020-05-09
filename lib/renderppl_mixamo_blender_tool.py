@@ -259,7 +259,7 @@ class RenderpplBlenderTool:
             projection_mat[2, 2] = -2 / (far - near)
             projection_mat[2, 3] = -(far + near) / (far - near)
         else:
-            print('ask Zeng to implement matrix for perspective')
+            blender_print('ask Zeng to implement matrix for perspective')
 
         return model_view, projection_mat
 

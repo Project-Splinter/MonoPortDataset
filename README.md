@@ -7,6 +7,7 @@ The folder structure is expected to be like this:
     #     |- bin/
     #     |- lib/
     #     |- scripts/
+    #     |- api/
     #     |- data/
     #         |- hdri/{*.exr}
     #
@@ -26,7 +27,7 @@ The folder structure is expected to be like this:
     #         |- pifu_orth/
     #             |- {train, val}.txt;
     #             |- <subject>/<action>/<frame>/
-    #                {mesh.obj, skeleton.txt, uv_render.png}
+    #                {mesh.obj, skeleton.txt, uv_render.png, uv_pos.npy}
     #                {calib/*.txt, render/*.png}
     #
     #     |- test_scripts/ # store experimental things.

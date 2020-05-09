@@ -21,9 +21,9 @@ save_folder = '../data/pifu_orth/'
 splits = ['debug']
 resolution = 512
 uv_resolution = 256
-num_samples = 100
+num_samples = 100 # seems like 100 is enough
 use_motion_blur = False
-use_transparent_bg = True,
+use_transparent_bg = True
 use_denoising = True
 # -----------------------------
 
