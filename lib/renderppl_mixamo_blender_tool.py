@@ -58,6 +58,7 @@ class RenderpplBlenderTool:
         self.current_geo = None
         self.current_material = None
         self.camera = None
+        self.uv_tex = None
         # action_pool is a mapping of action names to tuple (property, data)
         # where property specifies the definition of animation data
         self.action_pool = {}
@@ -78,7 +79,8 @@ class RenderpplBlenderTool:
         # reset variables
         self.current_model = None
         self.current_geo = None
-        self.camera = None
+        self.camera = None        
+        self.uv_tex = None
         self.action_pool = {}
         self.current_frame = 0
 
@@ -120,6 +122,14 @@ class RenderpplBlenderTool:
         principled_bsdf = nodes.get("Principled BSDF")
         material_output = nodes.get("Material Output")
 
+        # https://docs.blender.org/manual/en/latest/render/shader_nodes/shader/principled.html
+        # ['Base Color', 'Subsurface', 'Subsurface Radius', 'Subsurface Color', 
+        # 'Metallic', 'Specular', 'Specular Tint', 'Roughness', 'Anisotropic', 
+        # 'Anisotropic Rotation', 'Sheen', 'Sheen Tint', 'Clearcoat', 
+        # 'Clearcoat Roughness', 'IOR', 'Transmission', 'Transmission Roughness', 
+        # 'Emission', 'Alpha', 'Normal', 'Clearcoat Normal', 'Tangent']
+        principled_bsdf.inputs["Specular"].default_value = 0.1
+
         # Create Image Texture node and load the base color texture
         if base_color_path is not None:
             base_color = nodes.new('ShaderNodeTexImage')
@@ -127,6 +137,8 @@ class RenderpplBlenderTool:
 
             # Connect the base color texture to the Principled BSDF
             links.new(principled_bsdf.inputs["Base Color"], base_color.outputs["Color"])
+        
+
 
         # Create Image Texture node and load the normal map
         if normal_map_path is not None:
@@ -187,7 +199,12 @@ class RenderpplBlenderTool:
     def set_resolution(self, width, height):
         bpy.context.scene.render.resolution_x = width
         bpy.context.scene.render.resolution_y = height
-
+    
+    def set_uv_render(self, width, height):
+        uv_tex = self.current_material.node_tree.nodes.new('ShaderNodeTexImage')
+        uv_tex.image = bpy.data.images.new("uv_tex", width, height, alpha=True)
+        self.uv_tex = uv_tex
+    
     def set_render(self, num_samples=1000, use_motion_blur=True, use_transparent_bg=True, use_denoising=True):
         scene = bpy.data.scenes["Scene"]
         scene.camera = self.camera
@@ -209,7 +226,16 @@ class RenderpplBlenderTool:
         if calipath is not None:
             model_view, projection = self.get_calibration()
             np.savetxt(calipath, np.concatenate([model_view, projection], axis=0))
-
+    
+    def render_to_uv(self, uvimgpath):
+        model = self.current_geo
+        bpy.ops.object.select_all(action='DESELECT')
+        model.select_set(True)
+        bpy.context.view_layer.objects.active = model
+        self.current_material.node_tree.nodes.active = self.uv_tex
+        bpy.ops.object.bake(type='COMBINED')
+        bpy.data.images["uv_tex"].save_render(uvimgpath)
+    
     def get_calibration(self):
         # model_view
         model_view_zup = np.eye(4)
@@ -247,8 +273,7 @@ class RenderpplBlenderTool:
 
     # this set camera sets a camera looking at lookat from dist far, positioned at rad degree between x axis, and at the same height as lookat.
     def set_camera_ortho_pifu(self, lookat, dist, rad, near, far, ortho_scale=2.56):
-
-        cam_position = lookat
+        cam_position = lookat.copy()
         cam_position[0] += math.sin(-rad) * dist
         cam_position[2] += math.cos(-rad) * dist
         self.camera.location = yup_to_zup(*cam_position)
@@ -342,8 +367,10 @@ if __name__ == '__main__':
     tool.set_frame(1)
     tool.set_resolution(512, 512)
     tool.set_render()
+    tool.set_uv_render(256, 256)
     tool.set_camera_ortho_pifu([0, 1, 0], 3, math.radians(90), 1.5, 4.5)
 
     tool.export_mesh(os.path.join(SRC_ROOT, 'export.obj'))
     tool.export_skeleton(os.path.join(SRC_ROOT, 'export_sk.txt'))
     tool.render_to_img(os.path.join(SRC_ROOT, 'export.png'), os.path.join(SRC_ROOT, 'export_calib.txt'))
+    tool.render_to_uv(os.path.join(SRC_ROOT, 'export_uv.png'))

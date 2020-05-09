@@ -8,6 +8,8 @@ The folder structure is expected to be like this:
     #     |- lib/
     #     |- scripts/
     #     |- data/
+    #         |- hdri/{*.exr}
+    #
     #         |- mixamo/
     #             |- {all, train, val}.txt;
     #             |- actions  /<action>.fbx
@@ -24,8 +26,8 @@ The folder structure is expected to be like this:
     #         |- pifu_orth/
     #             |- {train, val}.txt;
     #             |- <subject>/<action>/<frame>/
-    #                {mesh.obj, skeleton.txt}
-    #                {calib/*.txt, render/*.png, uv_render/*.jpg}
+    #                {mesh.obj, skeleton.txt, uv_render.png}
+    #                {calib/*.txt, render/*.png}
     #
     #     |- test_scripts/ # store experimental things.
     #     |- test_data/ # store experimental things.
@@ -81,4 +83,10 @@ bash ./blender_multi_instances.sh mixamo_skeletons.py 20
 python mixamo_kmeans.py --split all --klist 10 20 50 100 200 300 500 1000
 python mixamo_kmeans.py --split train --klist 10 20 50 100 200 300 500 1000
 python mixamo_kmeans.py --split val --klist 10 20 50 100
+```
+
+`scripts/pifu_orth_splits.py`: Here is how we create <train/val> splits for PIFu training. The logic here is for each renderppl subject, we randomly select a mixamo action cluster first, then randomly select a frame from it, and apply it to the renderppl subject. Note that this script is only for creating the lists, not actual rendered image.
+```
+# under ./MonoPortDataset/scripts/
+python pifu_orth_splits.py
 ```
