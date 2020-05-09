@@ -105,7 +105,8 @@ class RenderpplBlenderTool:
                       not p.is_readonly]
         self.action_pool[action_name] = (properties, bpy.context.scene.objects[action_name].copy().animation_data)
 
-    def import_material(self, base_color_path, normal_map_path, material_name=None):
+    def import_material(
+        self, base_color_path, normal_map_path, material_name=None, **kwargs):
         # Define names and paths
         if material_name is None:
             material_name = "Example_Material"
@@ -128,7 +129,9 @@ class RenderpplBlenderTool:
         # 'Anisotropic Rotation', 'Sheen', 'Sheen Tint', 'Clearcoat', 
         # 'Clearcoat Roughness', 'IOR', 'Transmission', 'Transmission Roughness', 
         # 'Emission', 'Alpha', 'Normal', 'Clearcoat Normal', 'Tangent']
-        principled_bsdf.inputs["Specular"].default_value = 0.1
+        for key, value, in kwargs.items():
+            if key in principled_bsdf.inputs.keys():
+                principled_bsdf.inputs[key].default_value = value
 
         # Create Image Texture node and load the base color texture
         if base_color_path is not None:
@@ -138,8 +141,6 @@ class RenderpplBlenderTool:
             # Connect the base color texture to the Principled BSDF
             links.new(principled_bsdf.inputs["Base Color"], base_color.outputs["Color"])
         
-
-
         # Create Image Texture node and load the normal map
         if normal_map_path is not None:
             normal_tex = nodes.new('ShaderNodeTexImage')

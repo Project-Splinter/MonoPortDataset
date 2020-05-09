@@ -90,3 +90,11 @@ python mixamo_kmeans.py --split val --klist 10 20 50 100
 # under ./MonoPortDataset/scripts/
 python pifu_orth_splits.py
 ```
+
+`scripts/pifu_orth_render.py`: Finally! we come to the render part!.
+```
+# under ./MonoPortDataset/scripts/
+../bin/blender-2.82a-linux64/blender --background --python pifu_orth_render.py
+# or using this line for multi blender instances processing
+bash ./blender_multi_instances.sh pifu_orth_render.py 20
+```

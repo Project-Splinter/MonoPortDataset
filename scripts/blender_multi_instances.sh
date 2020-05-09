@@ -7,4 +7,5 @@ BLENDER='../bin/blender-2.82a-linux64/blender'
 
 for ((i=1; i<=$NUM_THREADS; i++)); do
    $BLENDER --background --python $PYTHON_SCRIPT > /dev/null &
+   sleep 1;
 done

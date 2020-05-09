@@ -6,7 +6,9 @@ import argparse
 import random
 import glob
 import math
+import time
 import numpy as np
+from collections import OrderedDict
 
 sys.path.append(os.path.dirname(__file__))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../lib/'))
@@ -16,15 +18,15 @@ from renderppl_mixamo_blender_tool import RenderpplBlenderTool, blender_print
 tool = RenderpplBlenderTool()
 tool.set_resolution(512, 512)
 tool.set_render(
-    num_samples=200, 
+    num_samples=100, 
     use_motion_blur=False, 
     use_transparent_bg=True, 
     use_denoising=True)
 
-random.seed(42)
+# random.seed(42)
 
 save_folder = '../data/pifu_orth/'
-splits = ['val']
+splits = ['debug']
 
 for split in splits:
     motions = np.loadtxt(os.path.join(save_folder, f'{split}.txt'), dtype=str)
@@ -39,15 +41,32 @@ for split in splits:
             processing_dict[subject][action] = []
         processing_dict[subject][action].append(frame)
     
-    for subject, subject_dict in processing_dict.items():
+    # for multi processing
+    processing_items = list(processing_dict.items())
+    random.shuffle(processing_items)
+    processing_dict = OrderedDict(processing_items)
+
+    for i, (subject, subject_dict) in enumerate(processing_dict.items()):
+        tic = time.time()
+        blender_print (f'[{i}/{len(processing_dict.items())}]', subject)
         # load renderppl subject
         subject_file = f'../data/renderppl/rigged/{subject}_FBX/{subject}_u3d.fbx'
         tex_file = f'../data/renderppl/rigged/{subject}_FBX/tex/{subject}_dif.jpg'
         normal_file = f'../data/renderppl/rigged/{subject}_FBX/tex/{subject}_norm.jpg'
         tool.import_model_fbx(subject_file, subject)
-        tool.import_material(tex_file, normal_file)
+        tool.import_material(
+            tex_file, normal_file, 
+            Specular=0.1, Metallic=0.0, Transmission=0.0, Anisotropic=0.0)
         
-        for action, action_list in subject_dict.items():
+        check_path = os.path.join(save_folder, subject)
+        if os.path.exists(check_path):
+            blender_print ('skip', subject)
+            continue
+        
+        for j, (action, action_list) in enumerate(subject_dict.items()):
+            blender_print (
+                f'[{i}/{len(processing_dict.items())}]', subject,
+                f'[{j}/{len(subject_dict.items())}]', action)
             # load mixamo action
             action_file = f'../data/mixamo/actions/{action}.fbx'
             tool.import_action_fbx(action_file, action)
@@ -82,10 +101,11 @@ for split in splits:
                 # camera settings.
                 skeleton = np.loadtxt(export_sk_file, dtype=float, usecols=[1,2,3])
                 skeleton_names = np.loadtxt(export_sk_file, dtype=str, usecols=[0]).tolist()
-                center = skeleton[skeleton_names.index('hip'), :] / 100 + [0, 0.2, 0]
+                center = skeleton[skeleton_names.index('hip'), :] / 100
                 dist, near, far = 3, 1.5, 4.5
                 ortho_scale = 2.00
-                for elev in range(0, 360, 120):
+                rotations = range(0, 360, 36) if split=='train' else range(0, 360, 120)
+                for elev in rotations:
                     # set camera: this sets a camera looking at {lookat#0} from {dist#1}
                     # far, positioned at {rad#2} degree between x axis, and at the 
                     # same height as lookat.
@@ -107,11 +127,18 @@ for split in splits:
             
             del tool.action_pool[action]
 
-            break
-        break
-    break
+        tool.reset()
+        tool.init_camera()
+        tool.set_resolution(512, 512)
+        tool.set_render(
+            num_samples=100, 
+            use_motion_blur=False, 
+            use_transparent_bg=True, 
+            use_denoising=True)
+            
+        toc = time.time()
+        blender_print(f'{subject} finished! It takes {(toc-tic)/60:.3f} min')   
 
-                    
-
+blender_print('done.')
             
 
