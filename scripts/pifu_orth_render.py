@@ -18,7 +18,7 @@ from renderppl_mixamo_blender_tool import RenderpplBlenderTool, blender_print
 # -------- settings ----------
 # random.seed(42)
 save_folder = '../data/pifu_orth/'
-splits = ['debug']
+splits = ['train', 'val']
 resolution = 512
 uv_resolution = 256
 num_samples = 100 # seems like 100 is enough
