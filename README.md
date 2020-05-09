@@ -22,12 +22,12 @@ The folder structure is expected to be like this:
     #             |- rigged    /<subject>_FBX/
     #             |- tpose_objs/<subject>.obj
     #             |- del_inside/<subject>/
-    #                {del_faces.npy, del_verts.npy del_uv_mask.png}
+    #                {del_faces.npy, del_verts.npy}
     #
     #         |- pifu_orth/
     #             |- {train, val}.txt;
     #             |- <subject>/<action>/<frame>/
-    #                {mesh.obj, skeleton.txt, uv_render.png, uv_pos.npy}
+    #                {mesh.obj, skeleton.txt, uv_render.png}
     #                {calib/*.txt, render/*.png}
     #
     #     |- test_scripts/ # store experimental things.
