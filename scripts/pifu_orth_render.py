@@ -15,18 +15,26 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../lib/'))
 
 from renderppl_mixamo_blender_tool import RenderpplBlenderTool, blender_print
 
-tool = RenderpplBlenderTool()
-tool.set_resolution(512, 512)
-tool.set_render(
-    num_samples=100, 
-    use_motion_blur=False, 
-    use_transparent_bg=True, 
-    use_denoising=True)
-
+# -------- settings ----------
 # random.seed(42)
-
 save_folder = '../data/pifu_orth/'
 splits = ['debug']
+resolution = 512
+uv_resolution = 256
+num_samples = 100
+use_motion_blur = False
+use_transparent_bg = True,
+use_denoising = True
+# -----------------------------
+
+tool = RenderpplBlenderTool()
+tool.set_resolution(resolution, resolution)
+tool.set_render(
+    num_samples=num_samples, 
+    use_motion_blur=use_motion_blur, 
+    use_transparent_bg=use_transparent_bg, 
+    use_denoising=use_denoising)
+
 
 for split in splits:
     motions = np.loadtxt(os.path.join(save_folder, f'{split}.txt'), dtype=str)
@@ -95,7 +103,7 @@ for split in splits:
                 export_uvrender_file = os.path.join(
                     save_folder, subject, action, f'{frame:06d}', 'uv_render.png')
                 os.makedirs(os.path.dirname(export_uvrender_file), exist_ok=True)
-                tool.set_uv_render(256, 256)
+                tool.set_uv_render(uv_resolution, uv_resolution)
                 tool.render_to_uv(export_uvrender_file)
 
                 # camera settings.
@@ -129,12 +137,13 @@ for split in splits:
 
         tool.reset()
         tool.init_camera()
-        tool.set_resolution(512, 512)
+        tool.set_resolution(resolution, resolution)
         tool.set_render(
-            num_samples=100, 
-            use_motion_blur=False, 
-            use_transparent_bg=True, 
-            use_denoising=True)
+            num_samples=num_samples, 
+            use_motion_blur=use_motion_blur, 
+            use_transparent_bg=use_transparent_bg, 
+            use_denoising=use_denoising)
+
             
         toc = time.time()
         blender_print(f'{subject} finished! It takes {(toc-tic)/60:.3f} min')   
