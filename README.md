@@ -97,5 +97,5 @@ python pifu_orth_splits.py
 # under ./MonoPortDataset/scripts/
 ../bin/blender-2.82a-linux64/blender --background --python pifu_orth_render.py
 # or using this line for multi blender instances processing
-bash ./blender_multi_instances.sh pifu_orth_render.py 20
+bash ./blender_multi_instances.sh pifu_orth_render.py 4
 ```
