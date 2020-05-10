@@ -68,7 +68,9 @@ class RenderpplBlenderTool:
         self.reset()
         self.init_camera()
 
-    def reset(self):
+    def reset(self):           
+        # FIXME: be care for that this func does not remove the model!
+        
         # clean up the whole scene
         bpy.ops.object.select_all(action='SELECT')
         bpy.ops.object.delete(use_global=False, confirm=False)
@@ -83,6 +85,10 @@ class RenderpplBlenderTool:
         self.uv_tex = None
         self.action_pool = {}
         self.current_frame = 0
+        
+    def remove(self, name):
+        objs = bpy.data.objects
+        objs.remove(objs[name], do_unlink=True)
 
     def import_model_fbx(self, fbxpath, replace_name=None, children_id=0):
         bpy.ops.import_scene.fbx(filepath=fbxpath, use_anim=True)
