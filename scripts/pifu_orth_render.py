@@ -27,7 +27,7 @@ save_folder = '../data/pifu_orth/'
 splits = ['val', 'train']
 resolution = 512
 uv_resolution = 512
-num_samples = 100 # seems like 100 is enough
+num_samples = 300 # seems like 300 is enough
 use_motion_blur = False
 use_transparent_bg = True
 use_denoising = True
@@ -127,7 +127,7 @@ for i, (subject, subject_dict) in enumerate(processing_dict.items()):
             center = skeleton[skeleton_names.index('hip'), :] / 100
             dist, near, far = 3, 1.5, 4.5
             ortho_scale = 2.00
-            rotations = range(0, 360, 36)
+            rotations = range(0, 360, 10)
             for elev in rotations:
                 # set camera: this sets a camera looking at {lookat#0} from {dist#1}
                 # far, positioned at {rad#2} degree between x axis, and at the 

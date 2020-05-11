@@ -17,7 +17,7 @@ data = {
         'train': np.loadtxt('../data/renderppl/train.txt', dtype=str),
         'val': np.loadtxt('../data/renderppl/val.txt', dtype=str),}
 }
-motion_per_subject = 30
+motion_per_subject = 10
 
 for split in ['train', 'val']:
     subjects = data['renderppl'][split]
