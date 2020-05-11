@@ -15,8 +15,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../lib/'))
 
 from renderppl_mixamo_blender_tool import RenderpplBlenderTool, blender_print
 
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    '-s', '--subjects', type=str, nargs="*", help='renderppl subject names')
+argv = sys.argv[sys.argv.index("--") + 1:]
+args = parser.parse_args(argv)
+
 # -------- settings ----------
-# random.seed(42)
+random.seed(42)
 save_folder = '../data/pifu_orth/'
 splits = ['val', 'train']
 resolution = 512
@@ -45,16 +51,18 @@ motions = np.concatenate([
 processing_dict = {}
 for motion in motions:
     subject, action, frame = motion[0], motion[1], int(motion[2])
+    if subject not in args.subjects:
+        continue
     if subject not in processing_dict:
         processing_dict[subject] = {}
     if action not in processing_dict[subject]:
         processing_dict[subject][action] = []
     processing_dict[subject][action].append(frame)
     
-# for multi processing
-processing_items = list(processing_dict.items())
-random.shuffle(processing_items)
-processing_dict = OrderedDict(processing_items)
+# # for multi processing
+# processing_items = list(processing_dict.items())
+# random.shuffle(processing_items)
+# processing_dict = OrderedDict(processing_items)
 
 for i, (subject, subject_dict) in enumerate(processing_dict.items()):
     tic = time.time()
@@ -140,6 +148,8 @@ for i, (subject, subject_dict) in enumerate(processing_dict.items()):
             
         del tool.action_pool[action]
 
+    # Be careful that it does not successfully remove the subject.
+    # so we only do one subject for each blender instance as for now.
     tool.remove(subject)
     tool.reset()
     tool.init_camera()
@@ -153,7 +163,5 @@ for i, (subject, subject_dict) in enumerate(processing_dict.items()):
             
     toc = time.time()
     blender_print(f'{subject} finished! It takes {(toc-tic)/60:.3f} min')   
-
-blender_print('done.')
-            
-
+    
+    exit()
