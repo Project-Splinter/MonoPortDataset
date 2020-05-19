@@ -2,6 +2,7 @@ import os
 import numpy as np
 from PIL import Image
 import trimesh
+import glob
 
 import torch
 import torchvision.transforms as transforms
@@ -22,9 +23,38 @@ class PIFuDataset():
         
         self.root = opt.root # <Where-is-MonoPortDataset>/data/
 
-        self.motion_list = sorted(
-            np.loadtxt(os.path.join(self.root, self.name, f'{self.split}.txt'), dtype=str).tolist())
+        self.motion_list = self.get_motion_list(split)
         self.rotations = range(0, 360, 10)
+
+    def get_motion_list(self, split):
+        txt = os.path.join(self.root, self.name, f'{split}.txt')
+        if os.path.exists(txt):
+            print (f"load from {txt}")
+            motion_list = sorted(np.loadtxt(txt, dtype=str).tolist())
+        else:
+            print (f"load the entire dataset and exclude val & test set.")
+            # load the val/test list 
+            val_txt = os.path.join(self.root, self.name, 'val.txt')
+            test_txt = os.path.join(self.root, self.name, 'test.txt')
+            assert os.path.exists(val_txt) or os.path.exists(test_txt)
+            skip_list = []
+            if os.path.exists(val_txt):
+                skip_list += sorted(np.loadtxt(val_txt, dtype=str).tolist())
+            if os.path.exists(test_txt):
+                skip_list += sorted(np.loadtxt(test_txt, dtype=str).tolist())
+            skip_list = ['_'.join(motion) for motion in skip_list]
+            
+            # scan the entire folder and ignore this list in val/test
+            paths = sorted(glob.glob(os.path.join(self.root, self.name, '*/*/*/render')))
+            motion_list = []
+            for path in paths:
+                splits = path.split('/')
+                motion = [splits[-4], splits[-3], str(int(splits[-2]))]
+                if '_'.join(motion) in skip_list:
+                    continue
+                motion_list.append(motion)
+
+        return motion_list
         
     def __len__(self):
         return len(self.motion_list) * len(self.rotations)
@@ -206,14 +236,15 @@ if __name__ == '__main__':
     parser.add_argument('--sigma_color', type=float, default=0.001)
     args = parser.parse_args()
         
-    dataset = PIFuDataset(args, split='debug')
-    data_dict = dataset[0]
+    dataset = PIFuDataset(args, split='all')
+    print (dataset.motion_list)
+    # data_dict = dataset[0]
 
     # dataset.visualize_sampling(data_dict, '../test_data/proj_geo.jpg', mode='geo')
     # dataset.visualize_sampling(data_dict, '../test_data/proj_color.jpg', mode='color')
 
     ## speed 3.30 iter/s
-    import tqdm
-    for _ in tqdm.tqdm(dataset):
-        pass
+    # import tqdm
+    # for _ in tqdm.tqdm(dataset):
+    #     pass
 
