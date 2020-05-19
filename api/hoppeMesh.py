@@ -42,12 +42,14 @@ def save_ply(mesh_path, points, rgb):
                       fmt='%.6f %.6f %.6f %d %d %d',
                       comments='',
                       header=(
-                          'ply\nformat ascii 1.0\nelement vertex {:d}\nproperty float x\nproperty float y\nproperty float z\nproperty uchar red\nproperty uchar green\nproperty uchar blue\nend_header').format(
-                          points.shape[0])
+                          'ply\nformat ascii 1.0\nelement vertex {:d}\n'+
+                          'property float x\nproperty float y\nproperty float z\n'+
+                          'property uchar red\nproperty uchar green\nproperty uchar blue\n'+
+                          'end_header').format(points.shape[0])
                       )
 
 class HoppeMesh:
-    def __init__(self, verts, normals, faces=None, uvs=None, texture=None):
+    def __init__(self, verts, vert_normals, face_normals, faces=None, uvs=None, texture=None):
         '''
         The HoppeSDF calculates signed distance towards a predefined oriented point cloud
         http://hhoppe.com/recon.pdf
@@ -57,7 +59,8 @@ class HoppeMesh:
         '''
         self.verts = verts #[n, 3]
         self.faces = faces  #[m, 3]
-        self.normals = normals  #[n, 3]
+        self.vert_normals = vert_normals  #[n, 3]
+        self.face_normals = face_normals  #[m, 3]
         self.uvs = uvs  #[n, 2]
         self.vertex_colors = None #[n, 4] rgba
         self.kd_tree = cKDTree(self.verts)
@@ -69,7 +72,7 @@ class HoppeMesh:
     def query(self, points):
         dists, idx = self.kd_tree.query(points)
         dirs = points - self.verts[idx]
-        signs = (dirs * self.normals[idx]).sum(axis=1)
+        signs = (dirs * self.vert_normals[idx]).sum(axis=1)
         signs = (signs > 0) * 2 - 1
         return signs * dists
 
@@ -107,6 +110,7 @@ class HoppeMesh:
         return self.verts[self.faces] #[n, 3, 3]
 
 
+
 if __name__ == '__main__':
     import trimesh
     from PIL import Image
@@ -115,7 +119,8 @@ if __name__ == '__main__':
     # load
     mesh_ori = trimesh.load("../test_data/mesh.obj")
     verts = mesh_ori.vertices
-    normals = mesh_ori.vertex_normals
+    vert_normals = mesh_ori.vertex_normals
+    face_normals = mesh_ori.face_normals
     faces = mesh_ori.faces
     uvs = mesh_ori.visual.uv 
 
@@ -123,7 +128,7 @@ if __name__ == '__main__':
 
     # create
     mesh = HoppeMesh(
-        verts, normals, faces, uvs, 
+        verts, vert_normals, face_normals, faces, uvs, 
         texture=Image.open("../test_data/uv_render.png"))
 
     # export

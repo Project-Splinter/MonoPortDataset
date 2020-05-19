@@ -40,7 +40,7 @@ def tri_area(triangles=None, crosses=None, sum=False):
         return np.sum(area)
     return area
 
-def sample_surface(triangles, count, area=None):
+def sample_surface(triangles, count, area=None, ignore_face_idxs=None):
     """
     Sample the surface of a mesh, returning the specified
     number of points
@@ -63,7 +63,11 @@ def sample_surface(triangles, count, area=None):
     # len(mesh.faces) float, array of the areas
     # of each face of the mesh
     if area is None:
-        area = tri_area(triangles)
+      area = tri_area(triangles)
+    if ignore_face_idxs is not None:
+      assert area.shape[0] == ignore_face_idxs.shape[0]
+      area[ignore_face_idxs] = 0
+
     # total area (float)
     area_sum = np.sum(area)
     # cumulative area (len(mesh.faces))
