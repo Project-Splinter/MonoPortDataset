@@ -42,6 +42,9 @@ cd ./MonoPortDataset
 wget https://mirror.clarkson.edu/blender/release/Blender2.82/blender-2.82a-linux64.tar.xz -O ./bin/blender-2.82a-linux64.tar.xz
 tar -xf ./bin/blender-2.82a-linux64.tar.xz -C ./bin/
 ```
+- pip install pybind11
+- tinyobjloader
+
 
 # Note for scripts
 `init_link.sh`: You need to setup the paths of where you store the data for renderppl and mixamo in this script. Then you can use this script to link the data into `./data/`.

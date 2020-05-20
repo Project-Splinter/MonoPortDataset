@@ -3,15 +3,46 @@ import numpy as np
 from PIL import Image
 import trimesh
 import glob
+from collections import defaultdict
 
 import torch
 import torchvision.transforms as transforms
 
 from hoppeMesh import HoppeMesh
 from sample import sample_surface
+from mesh_util import load_obj_mesh
+
+# import tinyobjloader
 
 def projection(points, calib):
     return np.matmul(calib[:3, :3], points.T).T + calib[:3, 3]
+
+# def obj_loader(path):
+#    # Create reader.
+#     reader = tinyobjloader.ObjReader()
+
+#     # Load .obj(and .mtl) using default configuration
+#     ret = reader.ParseFromFile(path)
+
+#     if ret == False:
+#         print("Failed to load : ", path)
+#         return None
+
+#     attrib = reader.GetAttrib()
+#     verts = np.array(attrib.vertices).reshape(-1, 3)
+#     vert_normals = np.array(attrib.normals).reshape(-1, 3)
+#     uvs = np.array(attrib.texcoords).reshape(-1, 2)
+#     # print (verts.shape, vert_normals.shape, uvs.shape)
+
+#     shapes = reader.GetShapes()
+#     tri = shapes[0].mesh.numpy_indices().reshape(-1, 9)
+#     faces = tri[:, [0, 3, 6]]
+#     face_normals = tri[:, [1, 4, 7]]
+#     face_uvs = tri[:, [2, 5, 8]]
+#     # print (faces.shape, face_normals.shape, face_uvs.shape)
+
+#     return verts, faces, vert_normals, face_normals, uvs, face_uvs
+    
 
 class PIFuDataset():
     def __init__(self, opt, split='train', name='pifu_orth'):
@@ -20,8 +51,10 @@ class PIFuDataset():
         self.name = name
         self.projection_mode = 'orthogonal'
         self.input_size = 512
-        
-        self.root = opt.root # <Where-is-MonoPortDataset>/data/
+        # current data should be loaded only by trimesh
+        self.use_trimesh = True 
+        # <Where-is-MonoPortDataset>/data/
+        self.root = opt.root 
 
         self.motion_list = self.get_motion_list(split)
         self.rotations = range(0, 360, 10)
@@ -84,26 +117,40 @@ class PIFuDataset():
                 self.root, self.name, subject, action, f'{frame:06d}', 'calib', f'{rotation:03d}.txt'),
             'render_path': os.path.join(
                 self.root, self.name, subject, action, f'{frame:06d}', 'render', f'{rotation:03d}.png'),
-
-            'del_faces': np.load(os.path.join(
-                self.root, 'renderppl', 'del_inside', subject, 'del_faces.npy')),
-            'del_verts': np.load(os.path.join(
-                self.root, 'renderppl', 'del_inside', subject, 'del_verts.npy')),
         }
+
+        # load preprocessed data for eyebow & teeth removal
+        if self.use_trimesh:
+            data_dict.update({
+                'del_faces': np.load(os.path.join(
+                    self.root, 'renderppl', 'del_inside', subject, 'del_faces.npy')),
+                'del_verts': np.load(os.path.join(
+                    self.root, 'renderppl', 'del_inside', subject, 'del_verts.npy')),
+            })
+        else:
+            data_dict.update({
+                'del_faces': np.load(os.path.join(
+                    self.root, 'renderppl', 'del_inside_raw', subject, 'del_faces.npy')),
+                'del_verts': np.load(os.path.join(
+                    self.root, 'renderppl', 'del_inside_raw', subject, 'del_verts.npy')),
+            })
 
         # load training data
         data_dict.update(self.load_calib(data_dict))
         data_dict.update(self.load_mesh(data_dict))
-        # data_dict.update(self.load_image(data_dict))
-        
-        # # sampling
-        # if self.opt.num_sample_geo:
-        #     sample_data_geo = self.get_sampling_geo(data_dict)
-        #     data_dict.update(sample_data_geo)
+        data_dict.update(self.load_image(data_dict))
 
-        # if self.opt.num_sample_color:
-        #     sample_data_color = self.get_sampling_color(data_dict)
-        #     data_dict.update(sample_data_color)
+        assert data_dict['del_faces'].shape[0] == data_dict['mesh'].faces.shape[0]
+        assert data_dict['del_verts'].shape[0] == data_dict['mesh'].verts.shape[0]
+        
+        # sampling
+        if self.opt.num_sample_geo:
+            sample_data_geo = self.get_sampling_geo(data_dict)
+            data_dict.update(sample_data_geo)
+
+        if self.opt.num_sample_color:
+            sample_data_color = self.get_sampling_color(data_dict)
+            data_dict.update(sample_data_color)
 
         return data_dict
 
@@ -124,18 +171,21 @@ class PIFuDataset():
         return {'calib': calib_mat}
 
     def load_mesh(self, data_dict):
-        mesh_ori = trimesh.load(data_dict['mesh_path'])
-        
-        verts = mesh_ori.vertices
-        vert_normals = mesh_ori.vertex_normals
-        face_normals = mesh_ori.face_normals
-        faces = mesh_ori.faces
-
-        if self.opt.num_sample_color:
+        if self.use_trimesh:
+            mesh_ori = trimesh.load(data_dict['mesh_path'])
+            verts = mesh_ori.vertices
+            vert_normals = mesh_ori.vertex_normals
+            face_normals = mesh_ori.face_normals
+            faces = mesh_ori.faces
             uvs = mesh_ori.visual.uv
+        else:
+            # verts, faces, vert_normals, face_normals, uvs, face_uvs = obj_loader(
+            #     data_dict['mesh_path'])
+            raise NotImplementedError
+
+        if self.opt.num_sample_color:            
             texture = Image.open(data_dict['uvrender_path'])
         else:
-            uvs = None
             texture = None
 
         mesh = HoppeMesh(
@@ -231,20 +281,22 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', type=str, default='../data/')
     parser.add_argument('--num_sample_geo', type=int, default=5000)
-    parser.add_argument('--num_sample_color', type=int, default=0)
+    parser.add_argument('--num_sample_color', type=int, default=5000)
     parser.add_argument('--sigma_geo', type=float, default=0.05)
     parser.add_argument('--sigma_color', type=float, default=0.001)
     args = parser.parse_args()
         
-    dataset = PIFuDataset(args, split='all')
+    dataset = PIFuDataset(args, split='debug')
     print (dataset.motion_list)
-    # data_dict = dataset[0]
+    data_dict = dataset[0]
 
-    # dataset.visualize_sampling(data_dict, '../test_data/proj_geo.jpg', mode='geo')
-    # dataset.visualize_sampling(data_dict, '../test_data/proj_color.jpg', mode='color')
+    if args.num_sample_geo:
+        dataset.visualize_sampling(data_dict, '../test_data/proj_geo.jpg', mode='geo')
+    if args.num_sample_color:
+        dataset.visualize_sampling(data_dict, '../test_data/proj_color.jpg', mode='color')
 
-    ## speed 3.30 iter/s
-    # import tqdm
-    # for _ in tqdm.tqdm(dataset):
-    #     pass
+    # speed 3.30 iter/s
+    import tqdm
+    for _ in tqdm.tqdm(dataset):
+        pass
 
