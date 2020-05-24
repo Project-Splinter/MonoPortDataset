@@ -11,119 +11,171 @@ from lib.options import BaseOptions
 from lib.dataset import PIFuDataset
 from lib.logger import colorlogger
 
-def adjust_learning_rate(optimizer, epoch, lr, schedule, gamma):
-    """Sets the learning rate to the initial LR decayed by schedule"""
-    if epoch in schedule:
-        lr *= gamma
-        for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
-    return lr
+def update_ckpt(filename, opt, netG, optimizerG, schedulerG, **kwargs):
+    ## `kwargs` can be used to store loss, accuracy, epoch, iteration and so on.
+    saved_dict = {
+        "opt": opt,
+        "netG": netG.state_dict(),
+        "optimizerG": optimizerG.state_dict(),
+        "schedulerG": schedulerG.state_dict(),
+    }
+    for k, v in kwargs.items():
+        saved_dict[k] = v
+    torch.save(saved_dict, filename)
 
 def train(opt):
-    # set cuda
-    cuda = torch.device('cuda:%d' % opt.gpu_id)
+    device = "cuda"
 
-    os.makedirs(opt.checkpoints_path, exist_ok=True)
-    os.makedirs(opt.results_path, exist_ok=True)
-    os.makedirs('%s/%s' % (opt.checkpoints_path, opt.name), exist_ok=True)
-    os.makedirs('%s/%s' % (opt.results_path, opt.name), exist_ok=True)
+    # set cache path
+    checkpoints_path = os.path.join(opt.checkpoints_path, opt.name)
+    os.makedirs(checkpoints_path, exist_ok=True)
+    results_path = os.path.join(opt.results_path, opt.name)
+    os.makedirs(results_path, exist_ok=True)
 
-    opt_log = os.path.join(opt.results_path, opt.name, 'opt.txt')
-    with open(opt_log, 'w') as outfile:
-        outfile.write(json.dumps(vars(opt), indent=2))
-    logger = colorlogger(log_dir=os.path.join(opt.results_path, opt.name))
-
-    train_dataset = PIFuDataset(opt, split='debug')
-    test_dataset = PIFuDataset(opt, split='debug')
-
-    projection_mode = train_dataset.projection_mode
-
-    # create data loader
-    train_data_loader = DataLoader(train_dataset,
-                                   batch_size=opt.batch_size, shuffle=not opt.serial_batches,
-                                   num_workers=opt.num_threads, pin_memory=opt.pin_memory)
-
-    logger.info(f'train data size: {len(train_data_loader)}')
-
-    # NOTE: batch size should be 1 and use all the points for evaluation
-    test_data_loader = DataLoader(test_dataset,
-                                  batch_size=1, shuffle=False,
-                                  num_workers=4, pin_memory=opt.pin_memory)
-    logger.info(f'test data size: {len(test_data_loader)}')
-
-    # create net
-    if opt.gtype == "HGPIFuNet":
-        netG = HGPIFuNet(opt, projection_mode).to(device=cuda)
-    elif opt.gtype == "ConvPIFuNet":
-        netG = ConvPIFuNet(opt, projection_mode).to(device=cuda)
-    optimizerG = torch.optim.RMSprop(netG.parameters(), lr=opt.learning_rate, momentum=0, weight_decay=0)
-    lr = opt.learning_rate
-    logger.info(f'Using Network: {netG.name}')
+    # set logger
+    logger = colorlogger(log_dir=results_path)
     
-    def set_train():
-        netG.train()
+    # set dataset
+    train_dataset = PIFuDataset(opt, split='debug')
+    train_data_loader = DataLoader(
+        train_dataset,
+        batch_size=opt.batch_size, shuffle=not opt.serial_batches,
+        num_workers=opt.num_threads, pin_memory=opt.pin_memory)
+    logger.info(
+        f'train data size: {len(train_dataset)}; '+
+        f'loader size: {len(train_data_loader)};')
+    
+    test_dataset = PIFuDataset(opt, split='debug')
+    test_data_loader = DataLoader(
+        test_dataset,
+        batch_size=1, shuffle=False,
+        num_workers=4, pin_memory=opt.pin_memory)
+    logger.info(
+        f'train data size: {len(test_dataset)}; '+
+        f'loader size: {len(test_data_loader)};')
 
-    def set_eval():
-        netG.eval()
+    # set network
+    projection_mode = train_dataset.projection_mode
+    if opt.gtype == "HGPIFuNet":
+        netG = HGPIFuNet(opt, projection_mode).to(device)
+    elif opt.gtype == "ConvPIFuNet":
+        netG = ConvPIFuNet(opt, projection_mode).to(device)
+    else:
+        raise NotImplementedError
+    
+    # set optimizer
+    learning_rate = opt.learning_rate
+    weight_decay = opt.weight_decay
+    momentum = opt.momentum
+    if opt.optim == "Adadelta":
+        optimizerG = torch.optim.Adadelta(
+            netG.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    elif opt.optim == "SGD":
+        optimizerG = torch.optim.SGD(
+            netG.parameters(), lr=learning_rate, momentum=momentum, weight_decay=weight_decay)
+    elif opt.optim == "Adam":
+        optimizerG = torch.optim.Adam(
+            netG.parameters(), lr=learning_rate)
+    elif opt.optim == "RMSprop":
+        optimizerG = torch.optim.RMSprop(
+            netG.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
+    else:
+        raise NotImplementedError
 
-    # load checkpoints
-    if opt.load_netG_checkpoint_path is not None:
-        logger.info(f'loading for net G ... {opt.load_netG_checkpoint_path}')
-        netG.load_state_dict(torch.load(opt.load_netG_checkpoint_path, map_location=cuda))
+    # set scheduler
+    schedulerG = torch.optim.lr_scheduler.MultiStepLR(
+        optimizerG, milestones=opt.schedule, gamma=opt.gamma)
 
-    if opt.continue_train:
-        if opt.resume_epoch < 0:
-            model_path = '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name)
-        else:
-            model_path = '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, opt.resume_epoch)
-        logger.info(f'Resuming from {model_path}')
-        netG.load_state_dict(torch.load(model_path, map_location=cuda))
+    # ======================== load checkpoints ================================
+    ckpt_path = opt.load_netG_checkpoint_path
+    if ckpt_path is not None and os.path.exists(ckpt_path):
+        logger.info(f"load ckpt from: {ckpt_path}")
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+    else:
+        logger.info(f"ckpt not found: {ckpt_path}")
+        ckpt = {}
 
-    # training
-    start_epoch = 0 if not opt.continue_train else max(opt.resume_epoch,0)
+    # load netG
+    if "netG" in ckpt and ckpt["netG"] is not None:
+        logger.info('loading for net G ...')
+        netG.load_state_dict(ckpt["netG"])
+
+    # resume optimizerG & schedulerG
+    if opt.continue_train and "optimizerG" in ckpt and ckpt["optimizerG"] is not None:
+        logger.info('loading for optimizer G ...')
+        optimizerG.load_state_dict(ckpt["optimizerG"])
+    if opt.continue_train and "schedulerG" in ckpt and ckpt["schedulerG"] is not None:
+        logger.info('loading for scheduler G ...')
+        schedulerG.load_state_dict(ckpt["schedulerG"])
+
+    # resume training schedule
+    start_epoch = 0
+    start_iteration = 0
+    if opt.continue_train and "epoch" in ckpt and ckpt["epoch"] is not None:
+        start_epoch = ckpt["epoch"]
+        logger.info(f'loading for start epoch ... {start_epoch}')
+    if opt.continue_train and "iteration" in ckpt and ckpt["iteration"] is not None:
+        start_iteration = ckpt["iteration"] + 1
+        logger.info(f'loading for start iteration ... {start_iteration}')
+
+    # ==========================================================================
+
+    # start training
     for epoch in range(start_epoch, opt.num_epoch):
-        epoch_start_time = time.time()
-
-        set_train()
-        iter_data_time = time.time()
-        for train_idx, train_data in enumerate(train_data_loader):
-            iter_start_time = time.time()
+        netG.train()
+        
+        loader = iter(train_data_loader)
+        epoch_start_time = iter_start_time = time.time()
+        for train_idx in range(start_iteration, len(train_data_loader)):
+            train_data = next(loader)            
+            iter_data_time = time.time()
 
             # retrieve the data
-            image_tensor = train_data['image'].to(device=cuda).float()
-            calib_tensor = train_data['calib'].to(device=cuda).float()
-            sample_tensor = train_data['samples_geo'].to(device=cuda).float()
-            label_tensor = train_data['labels_geo'].to(device=cuda).float()
+            image_tensor = train_data['image'].to(device).float()
+            calib_tensor = train_data['calib'].to(device).float()
+            sample_tensor = train_data['samples_geo'].to(device).float()
+            label_tensor = train_data['labels_geo'].to(device).float()
 
             sample_tensor = sample_tensor.permute(0, 2, 1) #[bz, 3, N]
             label_tensor = label_tensor.unsqueeze(1) #[bz, 1, N]
 
-            res, error = netG.forward(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
+            res, error = netG.forward(
+                image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
 
             optimizerG.zero_grad()
             error.backward()
             optimizerG.step()
 
             iter_net_time = time.time()
-            eta = ((iter_net_time - epoch_start_time) / (train_idx + 1)) * len(train_data_loader) - (
+            eta = ((iter_net_time - epoch_start_time) / (train_idx + 1 - start_iteration)) * len(train_data_loader) - (
                     iter_net_time - epoch_start_time)
 
+            # plot
             if train_idx % opt.freq_plot == 0:
                 logger.info(
-                    'Name: {0} | Epoch: {1} | {2}/{3} | Err: {4:.06f} | LR: {5:.06f} | Sigma: {6:.02f} | dataT: {7:.05f} | netT: {8:.05f} | ETA: {9:02d}:{10:02d}'.format(
-                        opt.name, epoch, train_idx, len(train_data_loader), error.item(), lr, opt.sigma_geo,
-                                                                            iter_start_time - iter_data_time,
-                                                                            iter_net_time - iter_start_time, int(eta // 60),
-                        int(eta - 60 * (eta // 60))))
+                    f'Name: {opt.name}|Epoch: {epoch:02d}({train_idx:05d}/{len(train_data_loader)})|' \
+                    +f'LR: {schedulerG.get_last_lr()[0]:.4f}|' \
+                    +f'dataT: {(iter_data_time - iter_start_time):.3f}|' \
+                    +f'netT: {(iter_net_time - iter_data_time):.3f}|'
+                    +f'ETA: {int(eta // 60):02d}:{int(eta - 60 * (eta // 60)):02d}|' \
+                    +f'Err:{error.item():.5f}|'
+                )
 
+            # save
             if train_idx % opt.freq_save == 0 and train_idx != 0:
-                torch.save(netG.state_dict(), '%s/%s/netG_latest' % (opt.checkpoints_path, opt.name))
-                torch.save(netG.state_dict(), '%s/%s/netG_epoch_%d' % (opt.checkpoints_path, opt.name, epoch))
-
-            iter_data_time = time.time()
-
-        # update learning rate
-        lr = adjust_learning_rate(optimizerG, epoch, lr, opt.schedule, opt.gamma)
+                update_ckpt(f'{checkpoints_path}/netG_latest', 
+                    opt, netG, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
+                update_ckpt(f'{checkpoints_path}/netG_epoch_{epoch}', 
+                    opt, netG, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
+            
+            # end
+            iter_start_time = time.time()
+        
+        # end of this epoch
+        update_ckpt(f'{checkpoints_path}/netG_epoch_{epoch}', 
+                    opt, netG, optimizerG, schedulerG, epoch=epoch+1, iteration=-1)
+        schedulerG.step()
+        start_iteration = 0
 
 
 if __name__ == '__main__':
