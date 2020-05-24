@@ -42,8 +42,8 @@ cd ./MonoPortDataset
 wget https://mirror.clarkson.edu/blender/release/Blender2.82/blender-2.82a-linux64.tar.xz -O ./bin/blender-2.82a-linux64.tar.xz
 tar -xf ./bin/blender-2.82a-linux64.tar.xz -C ./bin/
 ```
-- pip install pybind11
 - tinyobjloader
+- vtkplotter (only for debug)
 
 
 # Note for scripts
@@ -98,7 +98,6 @@ python pifu_orth_splits.py
 `scripts/pifu_orth_render.py`: Finally! we come to the render part!.
 ```
 # under ./MonoPortDataset/scripts/
-../bin/blender-2.82a-linux64/blender --background --python pifu_orth_render.py
-# or using this line for multi blender instances processing
-bash ./blender_multi_instances.sh pifu_orth_render.py 4
+# use this line for multi blender instances processing
+bash pifu_orth_render.sh 4
 ```

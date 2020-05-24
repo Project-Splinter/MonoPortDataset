@@ -49,7 +49,10 @@ def save_ply(mesh_path, points, rgb):
                       )
 
 class HoppeMesh:
-    def __init__(self, verts, vert_normals, face_normals, faces=None, uvs=None, texture=None):
+    def __init__(self, 
+                 verts, faces, vert_normals, face_normals, 
+                 uvs=None, face_uvs=None, texture=None,
+                 ignore_vert_idxs=None, ignore_face_idxs=None):
         '''
         The HoppeSDF calculates signed distance towards a predefined oriented point cloud
         http://hhoppe.com/recon.pdf
@@ -62,17 +65,29 @@ class HoppeMesh:
         self.vert_normals = vert_normals  #[n, 3]
         self.face_normals = face_normals  #[m, 3]
         self.uvs = uvs  #[n, 2]
+        self.face_uvs = face_uvs #[m, 3, 2]
         self.vertex_colors = None #[n, 4] rgba
-        self.kd_tree = cKDTree(self.verts)
+        self.ignore_vert_idxs = ignore_vert_idxs
+        self.ignore_face_idxs = ignore_face_idxs
+        if ignore_vert_idxs is None:
+            self.kd_tree = cKDTree(self.verts)
+        else:
+            self.kd_tree = cKDTree(self.verts[~ignore_vert_idxs])
         self.len = len(self.verts)
 
         if (uvs is not None) and (texture is not None):
             self.vertex_colors = uv_to_color(uvs, texture)
         
     def query(self, points):
-        dists, idx = self.kd_tree.query(points)
-        dirs = points - self.verts[idx]
-        signs = (dirs * self.vert_normals[idx]).sum(axis=1)
+        dists, idx = self.kd_tree.query(points, n_jobs=1)
+        # FIXME: because the eyebows are removed, cKDTree around eyebows
+        # are not accurate. Cause a few false-inside labels here.
+        if self.ignore_vert_idxs is None:
+            dirs = points - self.verts[idx]
+            signs = (dirs * self.vert_normals[idx]).sum(axis=1)
+        else:
+            dirs = points - self.verts[~self.ignore_vert_idxs][idx]
+            signs = (dirs * self.vert_normals[~self.ignore_vert_idxs][idx]).sum(axis=1)
         signs = (signs > 0) * 2 - 1
         return signs * dists
 
