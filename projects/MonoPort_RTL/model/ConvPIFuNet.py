@@ -8,6 +8,7 @@ from .ConvFilters import *
 from .net_util import init_net
 from .HRNetFilters import *
 from .CBNClassifier import *
+
 class ConvPIFuNet(BasePIFuNet):
     '''
     Conv Piximp network is the standard 3-phase network that we will use.
@@ -39,9 +40,6 @@ class ConvPIFuNet(BasePIFuNet):
         self.surface_classifier = self.define_classifier(opt)
 
         self.normalizer = DepthNormalizer(opt)
-
-        # This is a list of [B x Feat_i x H x W] features
-        self.im_feat_list = []
 
         init_net(self)
 
@@ -75,19 +73,17 @@ class ConvPIFuNet(BasePIFuNet):
 
         return net
 
-    def filter(self, images, inplace=True):
+    def filter(self, images):
         '''
         Filter the input images
         store all intermediate features.
         :param images: [B, C, H, W] input images
+        :return: a list of [B x Feat_i x H x W] features
         '''
-        im_feat_list = self.image_filter(images)
-        if inplace:
-            self.im_feat_list = im_feat_list
-        else:
-            return im_feat_list
+        features = self.image_filter(images)
+        return features
 
-    def query(self, points, calibs, transforms=None, labels=None, im_feat_list=None, inplace=True):
+    def query(self, features, points, calibs, transforms=None):
         '''
         Given 3D points, query the network predictions for each point.
         Image features should be pre-computed before this call.
@@ -99,9 +95,6 @@ class ConvPIFuNet(BasePIFuNet):
         :param labels: Optional [B, Res, N] gt labeling
         :return: [B, Res, N] predictions for each point
         '''
-        if labels is not None:
-            self.labels = labels
-
         xyz = self.projection(points, calibs, transforms)
         xy = xyz[:, :2, :]
         z = xyz[:, 2:3, :]
@@ -111,9 +104,7 @@ class ConvPIFuNet(BasePIFuNet):
         z_feat = self.normalizer(z, calibs=calibs)
 
         # This is a list of [B, Feat_i, N] features
-        if im_feat_list is None:
-            im_feat_list = self.im_feat_list
-        point_local_feat_list = [self.index(im_feat, xy) for im_feat in im_feat_list]
+        point_local_feat_list = [self.index(im_feat, xy) for im_feat in features]
         
         if self.opt.classifierIMF == 'SurfaceClassifier':
             # [B, Feat_all, N]
@@ -128,22 +119,16 @@ class ConvPIFuNet(BasePIFuNet):
             preds = preds.unsqueeze(1)
         # out of image plane is always set to 0
         preds = in_img[:,None].float() * preds
-        if inplace:
-            self.preds = preds
-        else:
-            return preds
+        return preds
 
     def forward(self, images, points, calibs, transforms=None, labels=None):
         # Get image feature
-        self.filter(images)
+        features = self.filter(images)
 
         # Phase 2: point query
-        self.query(points=points, calibs=calibs, transforms=transforms, labels=labels)
+        preds = self.query(features, points, calibs, transforms)
 
-        # get the prediction
-        res = self.get_preds()
-        
         # get the error
-        error = self.get_error()
+        error = self.get_error(preds, labels)
 
-        return res, error
+        return preds, error

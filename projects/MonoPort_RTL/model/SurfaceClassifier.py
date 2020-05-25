@@ -7,7 +7,7 @@ class SurfaceClassifier(nn.Module):
     def __init__(self, filter_channels, num_views=1, no_residual=True, last_op=None):
         super(SurfaceClassifier, self).__init__()
 
-        self.filters = []
+        self.filters = nn.ModuleList()
         self.num_views = num_views
         self.no_residual = no_residual
         filter_channels = filter_channels

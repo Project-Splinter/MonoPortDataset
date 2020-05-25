@@ -24,9 +24,6 @@ class BasePIFuNet(nn.Module):
         self.index = index
         self.projection = orthogonal if projection_mode == 'orthogonal' else perspective
 
-        self.preds = None
-        self.labels = None
-
     def forward(self, points, images, calibs, transforms=None):
         '''
         :param points: [B, 3, N] world space coordinates of points
@@ -35,9 +32,9 @@ class BasePIFuNet(nn.Module):
         :param transforms: Optional [B, 2, 3] image space coordinate transforms
         :return: [B, Res, N] predictions for each point
         '''
-        self.filter(images)
-        self.query(points, calibs, transforms)
-        return self.get_preds()
+        features = self.filter(images)
+        preds = self.query(features, points, calibs, transforms)
+        return preds
 
     def filter(self, images):
         '''
@@ -45,9 +42,9 @@ class BasePIFuNet(nn.Module):
         store all intermediate features.
         :param images: [B, C, H, W] input images
         '''
-        None
+        return None
 
-    def query(self, points, calibs, transforms=None, labels=None):
+    def query(self, features, points, calibs, transforms=None):
         '''
         Given 3D points, query the network predictions for each point.
         Image features should be pre-computed before this call.
@@ -59,18 +56,11 @@ class BasePIFuNet(nn.Module):
         :param labels: Optional [B, Res, N] gt labeling
         :return: [B, Res, N] predictions for each point
         '''
-        None
+        return None
 
-    def get_preds(self):
-        '''
-        Get the predictions from the last query
-        :return: [B, Res, N] network prediction for the last query
-        '''
-        return self.preds
-
-    def get_error(self):
+    def get_error(self, preds, labels):
         '''
         Get the network loss from the last query
         :return: loss term
         '''
-        return self.error_term(self.preds, self.labels)
+        return self.error_term(preds, labels)

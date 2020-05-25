@@ -4,6 +4,7 @@ import json
 import time
 import tqdm
 import torch
+import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from model import HGPIFuNet, ConvPIFuNet
@@ -62,6 +63,7 @@ def train(opt):
         netG = ConvPIFuNet(opt, projection_mode).to(device)
     else:
         raise NotImplementedError
+    netG = nn.DataParallel(netG)
     
     # set optimizer
     learning_rate = opt.learning_rate
@@ -98,7 +100,7 @@ def train(opt):
     # load netG
     if "netG" in ckpt and ckpt["netG"] is not None:
         logger.info('loading for net G ...')
-        netG.load_state_dict(ckpt["netG"])
+        netG.module.load_state_dict(ckpt["netG"])
 
     # resume optimizerG & schedulerG
     if opt.continue_train and "optimizerG" in ckpt and ckpt["optimizerG"] is not None:
@@ -139,8 +141,8 @@ def train(opt):
             sample_tensor = sample_tensor.permute(0, 2, 1) #[bz, 3, N]
             label_tensor = label_tensor.unsqueeze(1) #[bz, 1, N]
 
-            res, error = netG.forward(
-                image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
+            preds, error = netG(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
+            error = error.mean()
 
             optimizerG.zero_grad()
             error.backward()
@@ -164,16 +166,16 @@ def train(opt):
             # save
             if train_idx % opt.freq_save == 0 and train_idx != 0:
                 update_ckpt(f'{checkpoints_path}/netG_latest', 
-                    opt, netG, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
+                    opt, netG.module, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
                 update_ckpt(f'{checkpoints_path}/netG_epoch_{epoch}', 
-                    opt, netG, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
+                    opt, netG.module, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
             
             # end
             iter_start_time = time.time()
         
         # end of this epoch
         update_ckpt(f'{checkpoints_path}/netG_epoch_{epoch}', 
-                    opt, netG, optimizerG, schedulerG, epoch=epoch+1, iteration=-1)
+                    opt, netG.module, optimizerG, schedulerG, epoch=epoch+1, iteration=-1)
         schedulerG.step()
         start_iteration = 0
 

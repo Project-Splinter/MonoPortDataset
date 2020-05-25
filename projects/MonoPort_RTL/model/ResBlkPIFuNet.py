@@ -36,27 +36,20 @@ class ResBlkPIFuNet(BasePIFuNet):
 
         init_net(self)
 
-    def filter(self, images, inplace=True):
+    def filter(self, images):
         '''
         Filter the input images
         store all intermediate features.
         :param images: [B, C, H, W] input images
         '''
-        im_feat = self.image_filter(images)
-        if inplace:
-            self.im_feat = im_feat
-        else:
-            return im_feat
+        features = self.image_filter(images)
+        return features
 
-    def attach(self, im_feat, im_featC=None, inplace=True):
-        im_featC = self.im_feat if im_featC is None else im_featC
-        im_feat = torch.cat([im_feat, im_featC], 1)
-        if inplace:
-            self.im_feat = im_feat
-        else:
-            return im_feat
+    def attach(self, featuresG, featuresC):
+        features = torch.cat([featuresG, featuresC], 1)
+        return features
 
-    def query(self, points, calibs, transforms=None, labels=None, im_feat=None, inplace=True):
+    def query(self, features, points, calibs, transforms=None):
         '''
         Given 3D points, query the network predictions for each point.
         Image features should be pre-computed before this call.
@@ -68,9 +61,6 @@ class ResBlkPIFuNet(BasePIFuNet):
         :param labels: Optional [B, Res, N] gt labeling
         :return: [B, Res, N] predictions for each point
         '''
-        if labels is not None:
-            self.labels = labels
-
         xyz = self.projection(points, calibs, transforms)
         xy = xyz[:, :2, :]
         z = xyz[:, 2:3, :]
@@ -78,28 +68,23 @@ class ResBlkPIFuNet(BasePIFuNet):
         z_feat = self.normalizer(z)
 
         # This is a list of [B, Feat_i, N] features
-        im_feat = self.im_feat if im_feat is None else im_feat
-        point_local_feat_list = [self.index(im_feat, xy), z_feat]
+        point_local_feat_list = [self.index(features, xy), z_feat]
         # [B, Feat_all, N]
         point_local_feat = torch.cat(point_local_feat_list, 1)
 
         preds = self.surface_classifier(point_local_feat)
-        if inplace:
-            self.preds = preds
-        else:
-            return preds
+        return preds
 
-    def forward(self, images, im_feat, points, calibs, transforms=None, labels=None):
-        self.filter(images)
+    def forward(self, images, featuresG, points, calibs, transforms=None, labels=None):
+        featuresC = self.filter(images)
 
-        self.attach(im_feat)
+        features = self.attach(featuresG, featuresC)
 
-        self.query(points, calibs, transforms, labels)
+        preds = self.query(features, points, calibs, transforms)
 
-        res = self.get_preds()
-        error = self.get_error()
+        error = self.get_error(preds, labels)
 
-        return res, error
+        return preds, error
 
 class ResnetBlock(nn.Module):
     """Define a Resnet block"""

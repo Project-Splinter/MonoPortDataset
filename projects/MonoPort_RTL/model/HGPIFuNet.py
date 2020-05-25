@@ -44,33 +44,22 @@ class HGPIFuNet(BasePIFuNet):
             last_op=nn.Sigmoid())
 
         self.normalizer = DepthNormalizer(opt)
-
-        # This is a list of [B x Feat_i x H x W] features
-        self.im_feat_list = []
-        self.tmpx = None
-        self.normx = None
-
-        self.intermediate_preds_list = []
-
         init_net(self)
 
-    def filter(self, images, inplace=True):
+    def filter(self, images):
         '''
         Filter the input images
         store all intermediate features.
         :param images: [B, C, H, W] input images
         '''
-        im_feat_list, tmpx, normx = self.image_filter(images)
+        features, _, _ = self.image_filter(images)
         # If it is not in training, only produce the last im_feat
         if not self.training:
-            im_feat_list = [im_feat_list[-1]]
+            features = [features[-1]]
         
-        if inplace:
-            self.im_feat_list, self.tmpx, self.normx = im_feat_list, tmpx, normx
-        else:
-            return im_feat_list
+        return features
 
-    def query(self, points, calibs, transforms=None, labels=None, im_feat_list=None, inplace=True):
+    def query(self, features, points, calibs, transforms=None):
         '''
         Given 3D points, query the network predictions for each point.
         Image features should be pre-computed before this call.
@@ -82,9 +71,6 @@ class HGPIFuNet(BasePIFuNet):
         :param labels: Optional [B, Res, N] gt labeling
         :return: [B, Res, N] predictions for each point
         '''
-        if labels is not None:
-            self.labels = labels
-
         xyz = self.projection(points, calibs, transforms)
         xy = xyz[:, :2, :]
         z = xyz[:, 2:3, :]
@@ -93,62 +79,37 @@ class HGPIFuNet(BasePIFuNet):
 
         z_feat = self.normalizer(z, calibs=calibs)
 
-        if self.opt.skip_hourglass:
-            tmpx_local_feature = self.index(self.tmpx, xy)
-
-        intermediate_preds_list = []
-
-        if im_feat_list is None:
-            im_feat_list = self.im_feat_list # inplace
-
-        for im_feat in im_feat_list:
+        preds_list = []
+        for im_feat in features:
             # [B, Feat_i + z, N]
             point_local_feat_list = [self.index(im_feat, xy), z_feat]
-
-            if self.opt.skip_hourglass:
-                point_local_feat_list.append(tmpx_local_feature)
-
             point_local_feat = torch.cat(point_local_feat_list, 1)
 
             # out of image plane is always set to 0
-            pred = in_img[:,None].float() * self.surface_classifier(point_local_feat)
-            intermediate_preds_list.append(pred)
+            preds = self.surface_classifier(point_local_feat)
+            preds = in_img[:,None].float() * preds
+            preds_list.append(preds)
         
-        if inplace:
-            self.intermediate_preds_list = intermediate_preds_list
-            self.preds = intermediate_preds_list[-1]
-        else:
-            return intermediate_preds_list[-1]
+        return preds_list
 
-    def get_im_feat(self):
-        '''
-        Get the image filter
-        :return: [B, C_feat, H, W] image feature after filtering
-        '''
-        return self.im_feat_list[-1]
-
-    def get_error(self):
+    def get_error(self, preds_list, labels):
         '''
         Hourglass has its own intermediate supervision scheme
         '''
         error = 0
-        for preds in self.intermediate_preds_list:
-            error += self.error_term(preds, self.labels)
-        error /= len(self.intermediate_preds_list)
-        
+        for preds in preds_list:
+            error += self.error_term(preds, labels)
+        error /= len(preds_list)
         return error
 
     def forward(self, images, points, calibs, transforms=None, labels=None):
         # Get image feature
-        self.filter(images)
+        features = self.filter(images)
 
         # Phase 2: point query
-        self.query(points=points, calibs=calibs, transforms=transforms, labels=labels)
+        preds_list = self.query(features, points, calibs, transforms)
 
-        # get the prediction
-        res = self.get_preds()
-        
         # get the error
-        error = self.get_error()
+        error = self.get_error(preds_list, labels)
 
-        return res, error
+        return preds_list[-1], error
