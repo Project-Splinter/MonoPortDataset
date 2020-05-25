@@ -11,14 +11,14 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from tensorboardX import SummaryWriter
+from implicit_seg.functional import Seg3dLossless
 
 from model import HGPIFuNet, ConvPIFuNet
 from lib.options import BaseOptions
 from lib.dataset import PIFuDataset
 from lib.logger import colorlogger
 
-from implicit_seg.functional import Seg3dLossless
-from mcubes import marching_cubes
+device = "cuda"
 
 def update_ckpt(filename, opt, netG, optimizerG, schedulerG, **kwargs):
     ## `kwargs` can be used to store loss, accuracy, epoch, iteration and so on.
@@ -58,18 +58,85 @@ def query_func(opt, netG, features, points, proj_matrix=None):
         preds = preds[0]
     return preds
     
-def train(opt):
-    device = "cuda"
 
+def train(
+    opt, data_loader, netG, optimizerG, schedulerG,
+    logger, tb_writer, reconEngine, checkpoints_path, epoch, start_iter=0):
+    netG.train()
+
+    epoch_start_time = iter_start_time = time.time()
+    loader = iter(data_loader)
+    niter = len(data_loader)
+    for iteration in range(start_iter, niter):
+        train_data = next(loader)            
+        iter_data_time = time.time() - iter_start_time
+        global_step = epoch * niter + iteration
+
+        # retrieve the data
+        image_tensor = train_data['image'].to(device).float()
+        calib_tensor = train_data['calib'].to(device).float()
+        sample_tensor = train_data['samples_geo'].to(device).float()
+        label_tensor = train_data['labels_geo'].to(device).float()
+
+        sample_tensor = sample_tensor.permute(0, 2, 1) #[bz, 3, N]
+        label_tensor = label_tensor.unsqueeze(1) #[bz, 1, N]
+
+        preds, error = netG(
+            image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
+        error = error.mean()
+
+        optimizerG.zero_grad()
+        error.backward()
+        optimizerG.step()
+
+        iter_time = time.time() - iter_start_time
+        eta = (niter-start_iter) * (time.time()-epoch_start_time) / (iteration-start_iter+1) 
+
+        # print
+        if iteration % opt.freq_plot == 0:
+            logger.info(
+                f'Name: {opt.name}|Epoch: {epoch:02d}({iteration:05d}/{niter})|' \
+                +f'dataT: {(iter_data_time):.3f}|' \
+                +f'totalT: {(iter_time):.3f}|'
+                +f'ETA: {int(eta // 60):02d}:{int(eta - 60 * (eta // 60)):02d}|' \
+                +f'Err:{error.item():.5f}|'
+            )
+            tb_writer.add_scalar('data/errorG', error.item(), global_step)
+
+        # recon
+        if iteration % opt.freq_recon == 0:
+            logger.info('generate mesh (test) ...')
+            netG.eval()            
+            features = netG.module.filter(image_tensor[0:1])
+            sdf = reconEngine(opt=opt, netG=netG.module, features=features, proj_matrix=None)
+            sdf = sdf[0, 0].detach().cpu().numpy()
+            
+            try:
+                verts, faces, normals, values = measure.marching_cubes_lewiner(sdf, 0.5)
+                tb_writer.add_mesh(
+                    'recon', vertices=verts[np.newaxis], faces=faces[np.newaxis], global_step=global_step)
+            except Exception as e:
+                print(f'error cannot marching cubes: {e}')
+            netG.train()
+
+        # save
+        if iteration % opt.freq_save == 0:
+            update_ckpt(f'{checkpoints_path}/netG_latest', 
+                opt, netG.module, optimizerG, schedulerG, epoch=epoch, iteration=iteration)
+            update_ckpt(f'{checkpoints_path}/netG_epoch_{epoch}', 
+                opt, netG.module, optimizerG, schedulerG, epoch=epoch, iteration=iteration)
+        
+        # end
+        iter_start_time = time.time()
+        
+
+def main(opt):
     # hierachy occupancy reconstruction
-    b_min = torch.tensor([-1.0,  1.0, -1.0]).float()
-    b_max = torch.tensor([ 1.0, -1.0,  1.0]).float()
-    resolutions = [16+1, 32+1, 64+1, 128+1]
     reconEngine = Seg3dLossless(
         query_func=query_func, 
-        b_min=b_min.unsqueeze(0),
-        b_max=b_max.unsqueeze(0),
-        resolutions=resolutions,
+        b_min=[[-1.0,  1.0, -1.0]],
+        b_max=[[ 1.0, -1.0,  1.0]],
+        resolutions=[16+1, 32+1, 64+1, 128+1],
         align_corners=False,
         balance_value=0.5,
         device=device, 
@@ -166,95 +233,23 @@ def train(opt):
 
     # resume training schedule
     start_epoch = 0
-    start_iteration = 0
+    start_iter = 0
     if opt.continue_train and "epoch" in ckpt and ckpt["epoch"] is not None:
         start_epoch = ckpt["epoch"]
         logger.info(f'loading for start epoch ... {start_epoch}')
     if opt.continue_train and "iteration" in ckpt and ckpt["iteration"] is not None:
-        start_iteration = ckpt["iteration"] + 1
+        start_iter = ckpt["iteration"] + 1
         logger.info(f'loading for start iteration ... {start_iteration}')
-
     # ==========================================================================
 
     # start training
     for epoch in range(start_epoch, opt.num_epoch):
         netG.train()
-        
-        loader = iter(train_data_loader)
-        epoch_start_time = iter_start_time = time.time()
-        for train_idx in range(start_iteration, len(train_data_loader)):
-            global_idx = train_idx + epoch*len(train_data_loader)
-            train_data = next(loader)            
-            iter_data_time = time.time()
-
-            # retrieve the data
-            image_tensor = train_data['image'].to(device).float()
-            calib_tensor = train_data['calib'].to(device).float()
-            sample_tensor = train_data['samples_geo'].to(device).float()
-            label_tensor = train_data['labels_geo'].to(device).float()
-
-            sample_tensor = sample_tensor.permute(0, 2, 1) #[bz, 3, N]
-            label_tensor = label_tensor.unsqueeze(1) #[bz, 1, N]
-
-            preds, error = netG(image_tensor, sample_tensor, calib_tensor, labels=label_tensor)
-            error = error.mean()
-
-            optimizerG.zero_grad()
-            error.backward()
-            optimizerG.step()
-
-            iter_net_time = time.time()
-            eta = ((iter_net_time - epoch_start_time) / (train_idx + 1 - start_iteration)) * len(train_data_loader) - (
-                    iter_net_time - epoch_start_time)
-
-            # print
-            if train_idx % opt.freq_plot == 0:
-                logger.info(
-                    f'Name: {opt.name}|Epoch: {epoch:02d}({train_idx:05d}/{len(train_data_loader)})|' \
-                    +f'LR: {schedulerG.get_last_lr()[0]:.4f}|' \
-                    +f'dataT: {(iter_data_time - iter_start_time):.3f}|' \
-                    +f'netT: {(iter_net_time - iter_data_time):.3f}|'
-                    +f'ETA: {int(eta // 60):02d}:{int(eta - 60 * (eta // 60)):02d}|' \
-                    +f'Err:{error.item():.5f}|'
-                )
-                tb_writer.add_scalar('data/errorG', error.item(), global_idx)
-
-            # recon
-            if train_idx % 10 == 0:
-                logger.info('generate mesh (test) ...')
-                netG.eval()
-                test_data = test_dataset[0]
-                name = f"{test_data['subject']}_{test_data['action']}_{test_data['frame']}_{test_data['rotation']}"
-                save_path = f'{results_path}/test_eval_epoch{epoch}_{name}.obj'
-                
-                image_tensor = test_data['image'].unsqueeze(0).to(device).float()
-                features = netG.module.filter(image_tensor)
-                sdf = reconEngine(opt=opt, netG=netG.module, features=features, proj_matrix=None)
-                sdf = sdf[0, 0].detach().cpu().numpy()
-                # Finally we do marching cubes
-                try:
-                    verts, faces, normals, values = measure.marching_cubes_lewiner(sdf, 0.5)
-                    print (verts.shape, faces.shape)
-                    tb_writer.add_mesh('recon', vertices=verts[np.newaxis], faces=faces[np.newaxis], global_step=global_idx)
-                except Exception as e:
-                    print(f'error cannot marching cubes: {e}')
-                netG.train()
-
-            # save
-            if train_idx % opt.freq_save == 0 and train_idx != 0:
-                update_ckpt(f'{checkpoints_path}/netG_latest', 
-                    opt, netG.module, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
-                update_ckpt(f'{checkpoints_path}/netG_epoch_{epoch}', 
-                    opt, netG.module, optimizerG, schedulerG, epoch=epoch, iteration=train_idx)
-            
-            # end
-            iter_start_time = time.time()
-        
-        # end of this epoch
-        update_ckpt(f'{checkpoints_path}/netG_epoch_{epoch}', 
-                    opt, netG.module, optimizerG, schedulerG, epoch=epoch+1, iteration=-1)
+        train(
+            opt, train_data_loader, netG, optimizerG, schedulerG,
+            logger, tb_writer, reconEngine, checkpoints_path, epoch, start_iter)
         schedulerG.step()
-        start_iteration = 0
+        start_iter = 0
 
 
 if __name__ == '__main__':
@@ -263,4 +258,4 @@ if __name__ == '__main__':
     opt = parser.parse_args()
 
     # start training
-    train(opt)
+    main(opt)
