@@ -3,14 +3,22 @@ import os
 import json
 import time
 import tqdm
+import numpy as np
+from skimage import measure
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+
+from tensorboardX import SummaryWriter
 
 from model import HGPIFuNet, ConvPIFuNet
 from lib.options import BaseOptions
 from lib.dataset import PIFuDataset
 from lib.logger import colorlogger
+
+from implicit_seg.functional import Seg3dLossless
+from mcubes import marching_cubes
 
 def update_ckpt(filename, opt, netG, optimizerG, schedulerG, **kwargs):
     ## `kwargs` can be used to store loss, accuracy, epoch, iteration and so on.
@@ -24,8 +32,51 @@ def update_ckpt(filename, opt, netG, optimizerG, schedulerG, **kwargs):
         saved_dict[k] = v
     torch.save(saved_dict, filename)
 
+def query_func(opt, netG, features, points, proj_matrix=None):
+    '''
+        - points: size of (bz, N, 3)
+        - proj_matrix: size of (bz, 4, 4)
+    return: size of (bz, 1, N)
+    '''
+    assert len(points) == 1
+    samples = points.repeat(opt.num_views, 1, 1)
+    samples = samples.permute(0, 2, 1) # [bz, 3, N]
+
+    # view specific query
+    if proj_matrix is not None:
+        samples = orthogonal(samples, proj_matrix)
+
+    calib_tensor = torch.stack([
+        torch.eye(4).float()
+    ], dim=0).to(samples.device)
+
+    preds = netG.query(
+        features=features,
+        points=samples, 
+        calibs=calib_tensor)
+    if type(preds) is list:
+        preds = preds[0]
+    return preds
+    
 def train(opt):
     device = "cuda"
+
+    # hierachy occupancy reconstruction
+    b_min = torch.tensor([-1.0,  1.0, -1.0]).float()
+    b_max = torch.tensor([ 1.0, -1.0,  1.0]).float()
+    resolutions = [16+1, 32+1, 64+1, 128+1]
+    reconEngine = Seg3dLossless(
+        query_func=query_func, 
+        b_min=b_min.unsqueeze(0),
+        b_max=b_max.unsqueeze(0),
+        resolutions=resolutions,
+        align_corners=False,
+        balance_value=0.5,
+        device=device, 
+        visualize=False,
+        debug=False,
+        use_cuda_impl=True,
+        faster=True)
 
     # set cache path
     checkpoints_path = os.path.join(opt.checkpoints_path, opt.name)
@@ -35,6 +86,9 @@ def train(opt):
 
     # set logger
     logger = colorlogger(log_dir=results_path)
+
+    # set tensorboard
+    tb_writer = SummaryWriter(logdir=results_path)
     
     # set dataset
     train_dataset = PIFuDataset(opt, split='debug')
@@ -129,6 +183,7 @@ def train(opt):
         loader = iter(train_data_loader)
         epoch_start_time = iter_start_time = time.time()
         for train_idx in range(start_iteration, len(train_data_loader)):
+            global_idx = train_idx + epoch*len(train_data_loader)
             train_data = next(loader)            
             iter_data_time = time.time()
 
@@ -152,7 +207,7 @@ def train(opt):
             eta = ((iter_net_time - epoch_start_time) / (train_idx + 1 - start_iteration)) * len(train_data_loader) - (
                     iter_net_time - epoch_start_time)
 
-            # plot
+            # print
             if train_idx % opt.freq_plot == 0:
                 logger.info(
                     f'Name: {opt.name}|Epoch: {epoch:02d}({train_idx:05d}/{len(train_data_loader)})|' \
@@ -162,6 +217,28 @@ def train(opt):
                     +f'ETA: {int(eta // 60):02d}:{int(eta - 60 * (eta // 60)):02d}|' \
                     +f'Err:{error.item():.5f}|'
                 )
+                tb_writer.add_scalar('data/errorG', error.item(), global_idx)
+
+            # recon
+            if train_idx % 10 == 0:
+                logger.info('generate mesh (test) ...')
+                netG.eval()
+                test_data = test_dataset[0]
+                name = f"{test_data['subject']}_{test_data['action']}_{test_data['frame']}_{test_data['rotation']}"
+                save_path = f'{results_path}/test_eval_epoch{epoch}_{name}.obj'
+                
+                image_tensor = test_data['image'].unsqueeze(0).to(device).float()
+                features = netG.module.filter(image_tensor)
+                sdf = reconEngine(opt=opt, netG=netG.module, features=features, proj_matrix=None)
+                sdf = sdf[0, 0].detach().cpu().numpy()
+                # Finally we do marching cubes
+                try:
+                    verts, faces, normals, values = measure.marching_cubes_lewiner(sdf, 0.5)
+                    print (verts.shape, faces.shape)
+                    tb_writer.add_mesh('recon', vertices=verts[np.newaxis], faces=faces[np.newaxis], global_step=global_idx)
+                except Exception as e:
+                    print(f'error cannot marching cubes: {e}')
+                netG.train()
 
             # save
             if train_idx % opt.freq_save == 0 and train_idx != 0:

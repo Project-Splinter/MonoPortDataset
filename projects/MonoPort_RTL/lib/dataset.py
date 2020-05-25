@@ -206,7 +206,10 @@ class PIFuDataset():
             uvs=vert_uvs, texture=texture,
             ignore_vert_idxs=ignore_vert_idxs,
             ignore_face_idxs=ignore_face_idxs)
-        return {'mesh': mesh}
+
+        b_min = torch.from_numpy(verts.min(axis=0))
+        b_max = torch.from_numpy(verts.max(axis=0))
+        return {'mesh': mesh, 'b_min': b_min, 'b_max': b_max}
 
     def get_sampling_geo(self, data_dict):
         mesh = data_dict['mesh']

@@ -1,8 +1,6 @@
 import torch
 import numpy as np
 from .mesh_util import *
-from .sample_util import *
-from .geometry import *
 import cv2
 from PIL import Image
 from tqdm import tqdm
@@ -14,26 +12,6 @@ try:
     has_kaolin = True
 except:
     has_kaolin = False
-
-def reshape_multiview_tensors(image_tensor, calib_tensor):
-    # Careful here! Because we put single view and multiview together,
-    # the returned tensor.shape is 5-dim: [B, num_views, C, W, H]
-    # So we need to convert it back to 4-dim [B*num_views, C, W, H]
-    # Don't worry classifier will handle multi-view cases
-    image_tensor = image_tensor.view(
-        image_tensor.shape[0] * image_tensor.shape[1],
-        image_tensor.shape[2],
-        image_tensor.shape[3],
-        image_tensor.shape[4]
-    )
-    calib_tensor = calib_tensor.view(
-        calib_tensor.shape[0] * calib_tensor.shape[1],
-        calib_tensor.shape[2],
-        calib_tensor.shape[3]
-    )
-
-    return image_tensor, calib_tensor
-
 
 def reshape_sample_tensor(sample_tensor, num_views):
     if num_views == 1:
@@ -67,7 +45,7 @@ def gen_mesh_eval(opt, net, cuda, data, resolution=None):
         verts, faces = None, None
     return verts, faces
 
-def gen_mesh(opt, net, cuda, data, save_path, resolution=None, use_octree=True):
+def gen_mesh(opt, net, cuda, data, save_path, resolution=None):
     resolution = opt.resolution if resolution is None else resolution
     image_tensor = data['img'].to(device=cuda)
     calib_tensor = data['calib'].to(device=cuda)
@@ -86,11 +64,11 @@ def gen_mesh(opt, net, cuda, data, save_path, resolution=None, use_octree=True):
         Image.fromarray(np.uint8(save_img[:,:,::-1])).save(save_img_path)
 
         verts, faces, _, _ = reconstruction_faster(
-            net, cuda, calib_tensor, resolution, b_min, b_max, use_octree=use_octree)
+            net, cuda, calib_tensor, resolution, b_min, b_max)
         verts_tensor = torch.from_numpy(verts.T).unsqueeze(0).to(device=cuda).float()
         xyz_tensor = net.projection(verts_tensor, calib_tensor[:1])
         uv = xyz_tensor[:, :2, :]
-        color = index(image_tensor[:1], uv).detach().cpu().numpy()[0].T
+        color = netG.index(image_tensor[:1], uv).detach().cpu().numpy()[0].T
         color = color * 0.5 + 0.5
         save_obj_mesh_with_color(save_path, verts, faces, color)
     except Exception as e:
