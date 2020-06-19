@@ -169,6 +169,10 @@ def load_calib(param, render_size=512):
     return calib
 
 
+def projection(points, calib):
+    return np.matmul(calib[:3, :3], points.T).T + calib[:3, 3]
+
+
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '-s', '--subject', type=str, help='renderppl subject name')
@@ -197,18 +201,18 @@ angl_step = 1
 shs = np.load('./env_sh.npy')
 
 from renderer.gl.init_gl import initialize_GL_context
-initialize_GL_context(width=size, height=size, egl=True)
+initialize_GL_context(width=size, height=size, egl=False)
 
 from renderer.gl.prt_render import PRTRender
-rndr = PRTRender(width=size, height=size, ms_rate=1, egl=True)
-rndr_uv = PRTRender(width=size, height=size, uv_mode=True, egl=True)
+rndr = PRTRender(width=size, height=size, ms_rate=1, egl=False)
+rndr_uv = PRTRender(width=size, height=size, uv_mode=True, egl=False)
 
 from renderer.camera import Camera
 from renderer.mesh import load_obj_mesh, compute_tangent
 cam = Camera(width=size, height=size)
 cam.ortho_ratio = 0.4 * (512 / size)
-cam.near = -100
-cam.far = 100
+cam.near = -500
+cam.far = 500
 cam.sanity_check()
 
 # set path for obj, prt
@@ -224,7 +228,8 @@ up_axis = 1 #if (vmax-vmin).argmax() == 1 else 2
 
 vmed = np.median(vertices, 0)
 vmed[up_axis] = 0.5*(vmax[up_axis] + vmin[up_axis])
-y_scale = 180/(vmax[up_axis] - vmin[up_axis])
+# y_scale = 180/(vmax[up_axis] - vmin[up_axis])
+y_scale = 100
 
 rndr.set_norm_mat(y_scale, vmed)
 rndr_uv.set_norm_mat(y_scale, vmed)
@@ -285,3 +290,6 @@ for y in tqdm(range(0, 360, angl_step)):
         save_folder, subject, action, f'{frame:06d}', 'uv_render', f'{y:03d}.jpg')
     os.makedirs(os.path.dirname(export_uvrender_file), exist_ok=True)
     cv2.imwrite(export_uvrender_file, np.uint8(255.0*uv_color))
+
+    if uv_color.sum() == 0:
+        break

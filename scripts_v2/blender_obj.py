@@ -71,6 +71,12 @@ for _ in range(motion_per_subject):
     tool.apply_action(action)
     tool.set_frame(frame)
 
+    # export skeleton
+    export_sk_file = os.path.join(
+        save_folder, subject, action, f'{frame:06d}', 'skeleton.txt')
+    os.makedirs(os.path.dirname(export_sk_file), exist_ok=True)
+    tool.export_skeleton(export_sk_file)
+
     # export obj
     export_obj_file = os.path.join(
         save_folder, subject, action, f'{frame:06d}', 'mesh.obj')

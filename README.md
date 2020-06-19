@@ -101,3 +101,7 @@ python pifu_orth_splits.py
 # use this line for multi blender instances processing
 bash pifu_orth_render.sh 4
 ```
+
+----
+# MonoPortDataset V2
+../bin/blender-2.82a-linux64/2.82/python/bin/python3.7m inst

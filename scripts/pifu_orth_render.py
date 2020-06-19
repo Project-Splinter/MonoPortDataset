@@ -22,9 +22,9 @@ argv = sys.argv[sys.argv.index("--") + 1:]
 args = parser.parse_args(argv)
 
 # -------- settings ----------
-random.seed(42)
+# random.seed(42)
 save_folder = '../data/pifu_orth/'
-splits = ['val', 'train']
+splits = ['debug']
 resolution = 512
 uv_resolution = 512
 num_samples = 300 # seems like 300 is enough

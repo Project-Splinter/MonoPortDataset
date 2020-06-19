@@ -79,7 +79,7 @@ class HoppeMesh:
             self.vertex_colors = uv_to_color(uvs, texture)
         
     def query(self, points):
-        dists, idx = self.kd_tree.query(points, n_jobs=1)
+        dists, idx = self.kd_tree.query(points, n_jobs=5)
         # FIXME: because the eyebows are removed, cKDTree around eyebows
         # are not accurate. Cause a few false-inside labels here.
         if self.ignore_vert_idxs is None:
